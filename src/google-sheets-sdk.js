@@ -4,7 +4,12 @@
  */
 
 // Google Sheets API 配置
-let GOOGLE_SCRIPT_URL = localStorage.getItem('google_script_url') || '';
+let GOOGLE_SCRIPT_URL = localStorage.getItem('google_script_url') || 'https://script.google.com/macros/s/AKfycbybKYO7wJ3i9S12912i8I7sy5-kf-td9_s2tk-plblfL5tTHuxSm74fw6sjsQ6Qagdf/exec';
+
+// 如果本地沒有保存，則保存默認 URL
+if (!localStorage.getItem('google_script_url')) {
+  localStorage.setItem('google_script_url', GOOGLE_SCRIPT_URL);
+}
 
 // 設置 API URL 的函數
 window.setGoogleScriptUrl = function(url) {

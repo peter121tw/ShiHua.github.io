@@ -4,7 +4,57 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HSK 生詞卡學習系統</title>
-  <script src="/src/google-sheets-sdk.js"></script>
+  <script>
+    // Mock SDK for standalone use
+    window.dataSdk = {
+      async init(handler) {
+        window._dataHandler = handler;
+        const savedData = localStorage.getItem('hsk_words');
+        const words = savedData ? JSON.parse(savedData) : [];
+        setTimeout(() => handler.onDataChanged(words), 100);
+        return { isOk: true };
+      },
+      async create(wordData) {
+        const savedData = localStorage.getItem('hsk_words');
+        const words = savedData ? JSON.parse(savedData) : [];
+        words.push(wordData);
+        localStorage.setItem('hsk_words', JSON.stringify(words));
+
+        const handler = window._dataHandler;
+        if (handler) {
+          setTimeout(() => handler.onDataChanged(words), 100);
+        }
+        return { isOk: true };
+      },
+      async delete(word) {
+        const savedData = localStorage.getItem('hsk_words');
+        const words = savedData ? JSON.parse(savedData) : [];
+        const filtered = words.filter(w => w.id !== word.id);
+        localStorage.setItem('hsk_words', JSON.stringify(filtered));
+
+        const handler = window._dataHandler;
+        if (handler) {
+          setTimeout(() => handler.onDataChanged(filtered), 100);
+        }
+        return { isOk: true };
+      }
+    };
+
+    window.elementSdk = {
+      config: {},
+      async init(options) {
+        this.config = options.defaultConfig;
+        this._onConfigChange = options.onConfigChange;
+        return { isOk: true };
+      },
+      setConfig(newConfig) {
+        Object.assign(this.config, newConfig);
+        if (this._onConfigChange) {
+          this._onConfigChange(this.config);
+        }
+      }
+    };
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body {
@@ -138,10 +188,9 @@
     let testScore = 0;
     let testAnswers = [];
     let isLoading = false;
-    let customWordTypes = ['名词 n.', '动词 v.', '形容词 adj.', '副词 adv.', '代词 pron.', '数词 num.', '量词 m.', '连词 conj.', '介词 prep.', '助词 part.', '叹词 int.', '拟声词 nomo.', '成语 idiom.', '惯用语 com.phr.', '谚语 pro.v.', '俗语 com.say.', '歇后语 com.expr.', '前缀 pref.', '后缀 suff.'];
+    let customWordTypes = ['名詞', '動詞', '形容詞', '副詞', '代詞', '數詞', '量詞', '連詞', '介詞', '助詞', '嘆詞', '擬聲詞', '成語', '慣用語'];
     let showWordTypeModal = false;
     let showLevelModal = false;
-    let showSettingsModal = false;
     let customLevels = [
       { id: '1', label: 'HSK 1', value: 1 },
       { id: '2', label: 'HSK 2', value: 2 },
@@ -501,105 +550,14 @@
       attachEventListeners();
     }
 
-    function renderSettingsModal(colors, baseSize) {
-      const currentUrl = window.getGoogleScriptUrl ? window.getGoogleScriptUrl() : '';
-      const isConnected = currentUrl !== '';
-
-      return `
-        <div id="settings-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 2000; padding: 1rem;">
-          <div style="background-color: ${colors.card}; padding: 2rem; border-radius: 1rem; max-width: 700px; width: 100%; max-height: 90%; overflow-y: auto; box-shadow: 0 20px 25px rgba(0,0,0,0.3);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-              <h2 style="font-size: ${baseSize * 1.8}px; font-weight: bold; color: ${colors.text};">⚙️ Google Sheets 設定</h2>
-              <button id="close-settings-modal-btn" style="background-color: transparent; border: none; font-size: ${baseSize * 1.5}px; color: ${colors.text}; cursor: pointer; padding: 0.25rem; line-height: 1;">✕</button>
-            </div>
-
-            <!-- 連接狀態 -->
-            <div style="background-color: ${isConnected ? '#f0fdf4' : '#fef2f2'}; border: 2px solid ${isConnected ? colors.accent : '#ef4444'}; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1.5rem;">
-              <div style="display: flex; align-items: center; gap: 0.75rem;">
-                <div style="width: 12px; height: 12px; background-color: ${isConnected ? colors.accent : '#ef4444'}; border-radius: 50%;"></div>
-                <div>
-                  <div style="font-size: ${baseSize * 1.1}px; font-weight: bold; color: ${colors.text};">
-                    ${isConnected ? '✅ 已連接到 Google Sheets' : '❌ 尚未連接'}
-                  </div>
-                  ${isConnected ? `
-                    <div style="font-size: ${baseSize * 0.85}px; color: ${colors.text}; opacity: 0.7; margin-top: 0.25rem;">
-                      數據正在同步中（每 30 秒自動刷新）
-                    </div>
-                  ` : `
-                    <div style="font-size: ${baseSize * 0.85}px; color: ${colors.text}; opacity: 0.7; margin-top: 0.25rem;">
-                      請輸入 Google Apps Script URL 以啟用同步
-                    </div>
-                  `}
-                </div>
-              </div>
-            </div>
-
-            <!-- API URL 輸入 -->
-            <div style="margin-bottom: 1.5rem;">
-              <label style="display: block; font-size: ${baseSize}px; font-weight: 600; color: ${colors.text}; margin-bottom: 0.5rem;">
-                Google Apps Script URL
-              </label>
-              <input type="text" id="api-url-input" placeholder="https://script.google.com/macros/s/AKfycby.../exec" value="${currentUrl}"
-                style="width: 100%; padding: 0.75rem; border: 2px solid ${colors.primary}; border-radius: 0.5rem; font-size: ${baseSize * 0.9}px; background-color: white; color: ${colors.text}; font-family: monospace;">
-              <div style="font-size: ${baseSize * 0.8}px; color: ${colors.text}; opacity: 0.6; margin-top: 0.5rem;">
-                💡 提示：部署 Google Apps Script 後複製「網頁應用程式 URL」
-              </div>
-            </div>
-
-            <!-- 操作按鈕 -->
-            <div style="display: grid; gap: 0.75rem; margin-bottom: 1.5rem;">
-              <button id="save-api-url-btn" style="padding: 0.75rem; background-color: ${colors.accent}; color: white; border: none; border-radius: 0.5rem; cursor: pointer; font-size: ${baseSize}px; font-weight: bold;">
-                💾 保存 URL
-              </button>
-              <button id="test-connection-btn" ${!isConnected ? 'disabled' : ''} style="padding: 0.75rem; background-color: ${colors.primary}; color: white; border: none; border-radius: 0.5rem; cursor: ${!isConnected ? 'not-allowed' : 'pointer'}; font-size: ${baseSize}px; opacity: ${!isConnected ? '0.5' : '1'};">
-                🔍 測試連接
-              </button>
-              <button id="clear-api-url-btn" ${!isConnected ? 'disabled' : ''} style="padding: 0.75rem; background-color: #ef4444; color: white; border: none; border-radius: 0.5rem; cursor: ${!isConnected ? 'not-allowed' : 'pointer'}; font-size: ${baseSize}px; opacity: ${!isConnected ? '0.5' : '1'};">
-                🗑️ 清除連接
-              </button>
-            </div>
-
-            <!-- 說明文檔 -->
-            <div style="background-color: ${colors.background}; padding: 1.5rem; border-radius: 0.5rem; border-left: 4px solid ${colors.primary};">
-              <h3 style="font-size: ${baseSize * 1.1}px; font-weight: bold; color: ${colors.text}; margin-bottom: 1rem;">
-                📚 如何設置 Google Sheets 同步？
-              </h3>
-              <ol style="font-size: ${baseSize * 0.9}px; color: ${colors.text}; opacity: 0.8; padding-left: 1.5rem; line-height: 1.8;">
-                <li>打開您的 Google Sheets</li>
-                <li>點擊「擴充功能」→「Apps Script」</li>
-                <li>複製項目中的 <code>google-apps-script.js</code> 代碼</li>
-                <li>點擊「部署」→「新增部署作業」</li>
-                <li>類型選擇「網頁應用程式」</li>
-                <li>存取權限選擇「所有人」（重要！）</li>
-                <li>複製部署 URL 並貼到上方輸入框</li>
-                <li>點擊「保存 URL」</li>
-              </ol>
-              <div style="margin-top: 1rem; padding: 0.75rem; background-color: ${colors.card}; border-radius: 0.5rem;">
-                <div style="font-size: ${baseSize * 0.85}px; color: ${colors.text}; opacity: 0.7;">
-                  📖 詳細步驟請參考：<code style="background-color: ${colors.background}; padding: 0.25rem 0.5rem; border-radius: 0.25rem;">GOOGLE_SHEETS_SETUP.md</code>
-                </div>
-              </div>
-            </div>
-
-            <!-- 測試結果 -->
-            <div id="test-result" style="margin-top: 1.5rem; padding: 1rem; border-radius: 0.5rem; display: none;"></div>
-          </div>
-        </div>
-      `;
-    }
-
     function renderSyncIndicator(colors, baseSize) {
-      const hasUrl = window.getGoogleScriptUrl && window.getGoogleScriptUrl();
       return `
         <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background-color: ${colors.card}; border-radius: 0.5rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-          <div class="sync-indicator" style="width: 8px; height: 8px; background-color: ${hasUrl ? colors.accent : '#ef4444'}; border-radius: 50%;"></div>
-          <div style="font-size: ${baseSize * 0.85}px; color: ${colors.text}; flex: 1;">
-            <span style="font-weight: 600;">${hasUrl ? 'Google Sheets 已連結' : 'Google Sheets 未連結'}</span>
-            <span class="sync-time" style="opacity: 0.6; margin-left: 0.5rem;">${hasUrl ? '最後同步：' + formatSyncTime() : ''}</span>
+          <div class="sync-indicator" style="width: 8px; height: 8px; background-color: ${colors.accent}; border-radius: 50%;"></div>
+          <div style="font-size: ${baseSize * 0.85}px; color: ${colors.text};">
+            <span style="font-weight: 600;">Canva Sheet 已連結</span>
+            <span class="sync-time" style="opacity: 0.6; margin-left: 0.5rem;">最後同步：${formatSyncTime()}</span>
           </div>
-          <button id="settings-btn" style="background-color: ${colors.primary}; color: white; padding: 0.25rem 0.75rem; border-radius: 0.5rem; border: none; cursor: pointer; font-size: ${baseSize * 0.8}px;">
-            ⚙️ 設定
-          </button>
         </div>
       `;
     }
@@ -613,7 +571,6 @@
       });
 
       return `
-        ${showSettingsModal ? renderSettingsModal(colors, baseSize) : ''}
         ${showLevelModal ? `
           <div id="level-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; padding: 1rem;">
             <div style="background-color: ${colors.card}; padding: 2rem; border-radius: 1rem; max-width: 600px; width: 100%; max-height: 80%; overflow-y: auto; box-shadow: 0 20px 25px rgba(0,0,0,0.3);">
@@ -678,10 +635,10 @@
                 <div style="font-size: ${baseSize * 2}px;">📊</div>
                 <div style="flex: 1;">
                   <h3 style="font-size: ${baseSize * 1.2}px; font-weight: bold; color: ${colors.text}; margin-bottom: 0.5rem;">
-                    Google Sheets 雙向同步已啟用
+                    Canva Sheet 雙向同步已啟用
                   </h3>
                   <p style="font-size: ${baseSize * 0.9}px; color: ${colors.text}; opacity: 0.8; margin-bottom: 0.75rem;">
-                    您的生詞資料會自動儲存到 Google Sheets（試算表）。您可以：
+                    您的生詞資料會自動儲存到 Canva Sheet（試算表）。您可以：
                   </p>
                   <ul style="font-size: ${baseSize * 0.85}px; color: ${colors.text}; opacity: 0.8; list-style: none; padding: 0;">
                     <li style="margin-bottom: 0.25rem;">✓ 在網站上新增/刪除生詞 → 自動同步到試算表</li>
@@ -1038,7 +995,7 @@
 
               <button type="submit" id="submit-btn" ${allWords.length >= 999 ? 'disabled' : ''}
                 style="width: 100%; padding: 1rem; background-color: ${colors.accent}; color: white; border: none; border-radius: 0.5rem; cursor: ${allWords.length >= 999 ? 'not-allowed' : 'pointer'}; font-size: ${baseSize * 1.1}px; font-weight: bold; opacity: ${allWords.length >= 999 ? '0.5' : '1'};">
-                新增生詞到 Google Sheets
+                新增生詞到 Canva Sheet
               </button>
             </form>
           </div>
@@ -1631,33 +1588,6 @@
     }
 
     function attachEventListeners() {
-      // 設置按鈕監聽器
-      const settingsBtn = document.getElementById('settings-btn');
-      if (settingsBtn) {
-        settingsBtn.addEventListener('click', () => {
-          const currentUrl = window.getGoogleScriptUrl ? window.getGoogleScriptUrl() : '';
-          const message = currentUrl
-            ? `當前 Google Apps Script URL：\n${currentUrl}\n\n是否要更改？`
-            : '請輸入您的 Google Apps Script URL：\n\n部署步驟請參考 GOOGLE_SHEETS_SETUP.md';
-
-          const newUrl = prompt(message, currentUrl);
-          if (newUrl !== null && newUrl.trim() !== currentUrl) {
-            if (newUrl.trim() === '') {
-              if (confirm('確定要清除 Google Sheets 連接嗎？')) {
-                window.clearGoogleScriptUrl && window.clearGoogleScriptUrl();
-                window.location.reload();
-              }
-            } else if (newUrl.trim().includes('script.google.com')) {
-              window.setGoogleScriptUrl && window.setGoogleScriptUrl(newUrl.trim());
-              alert('✅ 設置成功！頁面將重新載入。');
-              window.location.reload();
-            } else {
-              alert('❌ URL 格式似乎不正確\n\n請確認這是 Google Apps Script 的部署 URL。');
-            }
-          }
-        });
-      }
-
       const actionCards = document.querySelectorAll('.action-card');
       actionCards.forEach(card => {
         card.addEventListener('click', () => {
@@ -1912,7 +1842,7 @@
           const messageDiv = document.getElementById('form-message');
 
           submitBtn.disabled = true;
-          submitBtn.textContent = '同步到 Google Sheets...';
+          submitBtn.textContent = '同步到 Canva Sheet...';
           isLoading = true;
 
           const wordTypeSelect = document.getElementById('word-type');
@@ -1943,7 +1873,7 @@
           isLoading = false;
 
           if (result.isOk) {
-            showFormMessage('✓ 生詞已成功新增並同步到 Google Sheets！', true);
+            showFormMessage('✓ 生詞已成功新增並同步到 Canva Sheet！', true);
             addWordForm.reset();
             setTimeout(() => {
               currentView = 'browse';
@@ -1952,7 +1882,7 @@
           } else {
             showFormMessage('✗ 新增失敗，請稍後再試', false);
             submitBtn.disabled = false;
-            submitBtn.textContent = '新增生詞到 Google Sheets';
+            submitBtn.textContent = '新增生詞到 Canva Sheet';
           }
         });
       }
